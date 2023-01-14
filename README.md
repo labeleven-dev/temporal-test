@@ -1,22 +1,23 @@
-# Fetch ESM
+# Starting
 
-Sample for configuring a Temporal project with TypeScript and [ES Modules](https://nodejs.org/api/esm.html).
+* Install Go and start Temporalite as per https://docs.temporal.io/application-development/foundations/?lang=typescript#temporalite
+* `git clone` and `npm install` this repo
+* Start the Order API server with `npm run api`
+* Start the Order Service worker with `npm run service`
 
-Fundamental difference from CommonJS:
+# Using
 
-- [`package.json`](./package.json) has `"type": "module"` attribute.
-- [`tsconfig.json`](./tsconfig.json) outputs in `esnext` format.
-- Imports [must](https://nodejs.org/api/esm.html#esm_mandatory_file_extensions) include the `.js` file extension.
-
-### Running this sample
-
-1. `temporal server start-dev` to start [Temporal Server](https://github.com/temporalio/cli/#installation).
-1. `npm install` to install dependencies.
-1. `npm run start.watch` to start the Worker.
-1. In another shell, `npm run workflow` to run the Workflow.
-
-The Workflow should return:
+Just do `npm run test` to see behaviour (2 examples, one where payment is submitted and one where it's not):
 
 ```
-Hello, Temporal!
+Created order b64ee276-bdf7-43a4-aaef-32c299b0a69d
+Order status is CREATED
+Submitted payment for b64ee276-bdf7-43a4-aaef-32c299b0a69d
+Order status is PENDING
+Order status is ORDER_SUBMITTED
+Order status is PAYMENT_SUCCESS
+Created order fa3da612-9d87-4ffc-ab1b-c99992361949
+Order status is CREATED
+Order status is PENDING
+Order status is ORDER_TIMEOUT
 ```

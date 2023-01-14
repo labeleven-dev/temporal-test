@@ -35,11 +35,10 @@ app.post('/order/:id/payment', async (req, res) => {
   const workflow = client.workflow.getHandle(workflowId);
 
   try {
-    const paymentId = await workflow.signal(SIGNAL_SUBMIT_PAYMENT, "paymentInfo");
+    await workflow.signal(SIGNAL_SUBMIT_PAYMENT, "paymentInfo");
 
     res.json({
-      orderId,
-      paymentId
+      orderId
     });
   } catch (err) {
     const status = await workflow.query<string, []>(QUERY_ORDER_STATE);
