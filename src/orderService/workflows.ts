@@ -26,9 +26,9 @@ export async function order(orderId: string): Promise<OrderState> {
   setHandler(queryOrderState, () => orderState.status);
 
   if (!await createOrderIntent(orderId)) {
-    return {
-      ...orderState, status: 'FAILED'
-    }
+    orderState.status = 'FAILED';
+    
+    return orderState;
   }
 
   orderState.status = 'PENDING';
