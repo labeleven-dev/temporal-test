@@ -2,6 +2,7 @@ import { Worker } from '@temporalio/worker';
 import { URL } from 'url';
 import path from 'path';
 import * as activities from './activities.js';
+import { TASK_QUEUE_ORDER } from '../consts.js';
 
 // Support running both complied code and ts-node/esm loader
 const workflowsPath = new URL(`./workflows${path.extname(import.meta.url)}`, import.meta.url).pathname;
@@ -9,7 +10,7 @@ const workflowsPath = new URL(`./workflows${path.extname(import.meta.url)}`, imp
 const worker = await Worker.create({
   workflowsPath,
   activities,
-  taskQueue: 'fetch-esm',
+  taskQueue: TASK_QUEUE_ORDER
 });
 
 await worker.run();
