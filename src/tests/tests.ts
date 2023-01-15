@@ -1,5 +1,5 @@
 import { Client } from '@temporalio/client';
-import { SIGNAL_PAYMENT_RESULT, SIGNAL_SUBMIT_PAYMENT } from '../consts.js';
+import { SIGNAL_PAYMENT_RESULT } from '../consts.js';
 import { createOrder, getOrderStatus, submitPayment } from './common.js';
 
 async function printOrderState(orderId: string) {
