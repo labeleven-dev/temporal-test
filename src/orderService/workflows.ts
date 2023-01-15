@@ -27,7 +27,7 @@ export async function order(orderId: string): Promise<OrderState> {
 
   if (!await createOrderIntent(orderId)) {
     orderState.status = 'FAILED';
-    
+
     return orderState;
   }
 
@@ -49,7 +49,7 @@ export async function order(orderId: string): Promise<OrderState> {
     if (await condition(() => orderState.status === 'ORDER_SUBMITTED', "10 seconds")) {
       // wait for payment success / error, but also poll for this info
       while (orderState.status === "ORDER_SUBMITTED") {
-        let result = await Promise.race([paymentResult, sleep(10000)]);
+        let result = await Promise.race([paymentResult, sleep(2000)]);
 
         // if we timed out waiting, try to manually retrieve status
         if (result === undefined) {
