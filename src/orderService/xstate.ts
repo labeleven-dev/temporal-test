@@ -1,22 +1,17 @@
 import { CancellationScope, isCancellation, sleep } from '@temporalio/workflow';
-import { EventObject, interpret, InterpreterFrom, StateMachine, StateSchema } from 'xstate';
+import { EventObject, interpret, StateMachine, StateSchema } from 'xstate';
 
 export function interpretWithTemporal<T1, T2 extends StateSchema<any>, T3 extends EventObject>(machine: StateMachine<T1, T2, T3>) {
   const service = interpret(machine, {
     clock: {
       setTimeout(fn, timeout) {
-        const scope = {
-          cancellationScope: new CancellationScope(),
-          slept: false
-        };
+        const scope = new CancellationScope();
 
-        scope.cancellationScope
-          .run(() => {
-            return sleep(timeout).then((args) => {
-              scope.slept = true;
-              fn(args);
-            });
-          })
+        scope
+          // cancellation scope only matters for the sleep call
+          .run(() => sleep(timeout))
+          // continuation is not cancelled once sleep is done
+          .then(fn)
           .catch((err) => {
             if (isCancellation(err)) {
               return;
@@ -27,10 +22,8 @@ export function interpretWithTemporal<T1, T2 extends StateSchema<any>, T3 extend
         return scope;
       },
 
-      clearTimeout(scope: { cancellationScope: CancellationScope; slept: boolean }) {
-        if (!scope.slept) {
-          scope.cancellationScope.cancel();
-        }
+      clearTimeout(scope: CancellationScope) {
+        scope.cancel();
       }
     }
   });
