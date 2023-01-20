@@ -1,4 +1,4 @@
-module goOrder
+module goWorker
 
 go 1.19
 

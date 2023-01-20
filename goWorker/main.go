@@ -2,9 +2,9 @@ package main
 
 import (
 	"go.uber.org/fx"
-	"goOrder/activity"
-	"goOrder/config"
-	"goOrder/infra"
+	"goWorker/activity"
+	"goWorker/config"
+	"goWorker/infra"
 )
 
 func main() {

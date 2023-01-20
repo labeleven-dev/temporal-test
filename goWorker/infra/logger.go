@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"goOrder/config"
+	"goWorker/config"
 	"gopkg.in/natefinch/lumberjack.v2"
 	"os"
 )

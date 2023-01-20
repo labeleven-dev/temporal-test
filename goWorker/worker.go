@@ -8,9 +8,9 @@ import (
 	temporalWorkflow "go.temporal.io/sdk/workflow"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
-	"goOrder/activity"
-	"goOrder/config"
-	"goOrder/workflow"
+	"goWorker/activity"
+	"goWorker/config"
+	"goWorker/workflow"
 )
 
 func NewWorker(config *config.Config, activity *activity.Payment, logger *zap.SugaredLogger) (client.Client, worker.Worker) {
