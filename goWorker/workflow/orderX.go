@@ -5,29 +5,26 @@ import (
 	"go.temporal.io/sdk/workflow"
 	"go.uber.org/zap"
 	"goWorker/activity"
+	"goWorker/state"
 	"time"
 )
 
-type OrderState struct {
-	Status    string
-	PaymentId string
-}
+// OrderX handle state transition in state machine
+func OrderX(ctx workflow.Context, orderId string, log *zap.SugaredLogger) (state.StateOutput, error) {
 
-// Order handle state transition directly under workflow
-func Order(ctx workflow.Context, orderId string, log *zap.SugaredLogger) (OrderState, error) {
-
-	orderState := OrderState{
-		Status:    "CREATED",
-		PaymentId: "",
+	orderMachine, err := state.NewFSM(state.InitState)
+	if err != nil {
+		log.Infof("Creating order machine failed. %s", err)
+		return state.FailedStateOutput, err
 	}
 
 	// set query handlers
-	err := workflow.SetQueryHandler(ctx, QueryState.Order, func() (string, error) {
-		return orderState.Status, nil
+	err = workflow.SetQueryHandler(ctx, QueryState.Order, func() (string, error) {
+		return orderMachine.GetStateStatusText(), nil
 	})
 	if err != nil {
 		log.Infof("SetQueryHandler %s failed. %s", QueryState.Order, err)
-		return orderState, err
+		return orderMachine.GetStateOutput(), err
 	}
 
 	var a *activity.Payment
@@ -38,15 +35,20 @@ func Order(ctx workflow.Context, orderId string, log *zap.SugaredLogger) (OrderS
 	err = workflow.ExecuteActivity(ctx, a.CreateOrderIntent, orderId).Get(ctx, &response)
 	if err != nil {
 		log.Errorf("Error execute activity %s", "CreateOrderIntent")
-		return orderState, err
+		return orderMachine.GetStateOutput(), err
 	}
 
-	if !response.Success {
-		orderState.Status = "FAILED"
-		return orderState, nil
+	orderState, err := orderMachine.Call(state.EventCreate,
+		state.WithOrderSuccess(response.Success),
+	)
+	if err != nil {
+		log.Info("Call EventCreate failed. %s", err)
+		return orderMachine.GetStateOutput(), err
 	}
-
-	orderState.Status = "PENDING"
+	if orderState.Status == state.StatusFailed {
+		log.Info("Failed to create order intent. Status: %s", orderState.Status)
+		return orderMachine.GetStateOutput(), nil
+	}
 
 	// define signal
 	submitPaymentChannel := workflow.GetSignalChannel(ctx, SignalChannels.SubmitPayment)
@@ -76,8 +78,12 @@ func Order(ctx workflow.Context, orderId string, log *zap.SugaredLogger) (OrderS
 				return
 			}
 
-			orderState.Status = "ORDER_SUBMITTED"
-			orderState.PaymentId = response.PaymentId
+			if _, err = orderMachine.Call(state.EventSubmit,
+				state.WithPaymentId(response.PaymentId),
+			); err != nil {
+				log.Infof("Call EventSubmit failed. %s", err)
+				return
+			}
 		})
 
 		// signal paymentResultChannel handler
@@ -92,39 +98,53 @@ func Order(ctx workflow.Context, orderId string, log *zap.SugaredLogger) (OrderS
 				return
 			}
 
-			if paymentSuccess {
-				orderState.Status = "PAYMENT_SUCCESS"
-			} else {
-				orderState.Status = "PAYMENT_FAILED"
+			if _, err = orderMachine.Call(state.EventConfirm,
+				state.WithPaymentSuccess(paymentSuccess),
+				state.WithPaymentId(orderMachine.GetState().PaymentId),
+			); err != nil {
+				log.Infof("Call EventConfirm failed. %s", err)
+				return
 			}
 		})
 
 		// order must be submitted within 10 seconds
-		if orderState.Status == "PENDING" {
+		if orderMachine.GetStateStatus() == state.StatusPending {
 			selector.AddFuture(workflow.NewTimer(ctx, orderTimeOut), func(f workflow.Future) {
-				orderState.Status = "ORDER_TIMEOUT"
+				if _, err = orderMachine.Call(state.EventOrderTimeout,
+					state.WithPaymentId(orderMachine.GetState().PaymentId),
+				); err != nil {
+					log.Infof("Call EventOrderTimeout failed. %s", err)
+					return
+				}
 			})
-		} else if orderState.Status == "ORDER_SUBMITTED" {
+		} else if orderMachine.GetStateStatus() == state.StatusOrderSubmitted {
 			// polling payment status in 2s
 			selector.AddFuture(workflow.NewTimer(ctx, 2*time.Second), func(f workflow.Future) {
 				var response *activity.GetPaymentStatusResponse
 				ctx = workflow.WithActivityOptions(
 					ctx, DefaultActivityOption)
-				err = workflow.ExecuteActivity(ctx, a.GetPaymentStatus, orderState.PaymentId).Get(ctx, &response)
+				err = workflow.ExecuteActivity(ctx, a.GetPaymentStatus, orderMachine.GetState().PaymentId).Get(ctx, &response)
 				if err != nil {
 					log.Errorf("Error execute activity %s", "GetPaymentStatus")
 					return
 				}
-				if response.Success {
-					orderState.Status = "PAYMENT_SUCCESS"
-				} else {
-					orderState.Status = "PAYMENT_FAILED"
+				if _, err = orderMachine.Call(state.EventConfirm,
+					state.WithPaymentSuccess(response.Success),
+					state.WithPaymentId(orderMachine.GetState().PaymentId),
+				); err != nil {
+					log.Infof("Call EventConfirm failed. %s", err)
+					return
 				}
 			})
 
 			// payment must be processed / returned within next 10 seconds
 			selector.AddFuture(workflow.NewTimer(ctx, paymentTimeOut), func(f workflow.Future) {
-				orderState.Status = "PAYMENT_TIMEOUT"
+				if _, err = orderMachine.Call(state.EventPaymentTimeout,
+					state.WithPaymentId(orderMachine.GetState().PaymentId),
+				); err != nil {
+					log.Infof("Call EventPaymentTimeout failed. %s", err)
+					return
+				}
 			})
 		} else {
 			break
@@ -134,5 +154,5 @@ func Order(ctx workflow.Context, orderId string, log *zap.SugaredLogger) (OrderS
 
 	}
 
-	return orderState, nil
+	return orderMachine.GetStateOutput(), nil
 }

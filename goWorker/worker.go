@@ -29,9 +29,17 @@ func NewWorker(config *config.Config, activity *activity.Payment, logger *zap.Su
 	w.RegisterActivity(activity.GetPaymentStatus)
 
 	// register workflow
-	w.RegisterWorkflowWithOptions(workflow.Order, temporalWorkflow.RegisterOptions{
-		Name: config.Temporal.WorkflowName,
-	})
+	if config.Temporal.WorkflowName == "order" {
+		w.RegisterWorkflowWithOptions(workflow.Order, temporalWorkflow.RegisterOptions{
+			Name: config.Temporal.WorkflowName,
+		})
+	} else if config.Temporal.WorkflowName == "orderX" {
+		w.RegisterWorkflowWithOptions(workflow.OrderX, temporalWorkflow.RegisterOptions{
+			Name: config.Temporal.WorkflowName,
+		})
+	} else {
+		panic("workflow not implemented")
+	}
 
 	return cli, w
 }
