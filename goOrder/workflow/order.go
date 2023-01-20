@@ -10,7 +10,7 @@ import (
 )
 
 var DefaultActivityOption = workflow.ActivityOptions{
-	StartToCloseTimeout: 10 * time.Second,
+	StartToCloseTimeout: 5 * time.Second,
 }
 
 var QueryState = struct {
@@ -101,66 +101,58 @@ func Order(ctx workflow.Context, orderId string, log *zap.SugaredLogger) error {
 			orderState.PaymentId = response.PaymentId
 		})
 
+		// signal paymentResultChannel handler
+		selector.AddReceive(paymentResultChannel, func(c workflow.ReceiveChannel, _ bool) {
+			var signal interface{}
+			c.Receive(ctx, &signal)
+
+			var paymentSuccess bool
+			err := mapstructure.Decode(signal, &paymentSuccess)
+			if err != nil {
+				log.Error("%s: Invalid signal type %v", SignalChannels.PaymentResult, err)
+				return
+			}
+
+			if paymentSuccess {
+				orderState.Status = "PAYMENT_SUCCESS"
+			} else {
+				orderState.Status = "PAYMENT_FAILED"
+			}
+		})
+
 		// order must be submitted within 10 seconds
 		if orderState.Status == "PENDING" {
 			selector.AddFuture(workflow.NewTimer(ctx, orderTimeOut), func(f workflow.Future) {
 				orderState.Status = "ORDER_TIMEOUT"
 			})
+		} else if orderState.Status == "ORDER_SUBMITTED" {
+			// polling payment status in 2s
+			selector.AddFuture(workflow.NewTimer(ctx, 2*time.Second), func(f workflow.Future) {
+				var response *activity.GetPaymentStatusResponse
+				ctx = workflow.WithActivityOptions(
+					ctx, DefaultActivityOption)
+				err = workflow.ExecuteActivity(ctx, a.GetPaymentStatus, orderState.PaymentId).Get(ctx, &response)
+				if err != nil {
+					log.Error("Error execute activity %s", "GetPaymentStatus")
+					return
+				}
+				if response.Success {
+					orderState.Status = "PAYMENT_SUCCESS"
+				} else {
+					orderState.Status = "PAYMENT_FAILED"
+				}
+			})
+
+			// payment must be processed / returned within next 10 seconds
+			selector.AddFuture(workflow.NewTimer(ctx, paymentTimeOut), func(f workflow.Future) {
+				orderState.Status = "PAYMENT_TIMEOUT"
+			})
 		} else {
-			if orderState.Status == "ORDER_SUBMITTED" {
-				// payment must be processed / returned within next 10 seconds
-				selector.AddFuture(workflow.NewTimer(ctx, paymentTimeOut), func(f workflow.Future) {
-					orderState.Status = "PAYMENT_TIMEOUT"
-				})
-
-				// signal paymentResultChannel handler
-				selector.AddReceive(paymentResultChannel, func(c workflow.ReceiveChannel, _ bool) {
-					var signal interface{}
-					c.Receive(ctx, &signal)
-
-					var paymentSuccess bool
-					err := mapstructure.Decode(signal, &paymentSuccess)
-					if err != nil {
-						log.Error("%s: Invalid signal type %v", SignalChannels.PaymentResult, err)
-						return
-					}
-
-					if paymentSuccess {
-						orderState.Status = "PAYMENT_SUCCESS"
-					} else {
-						orderState.Status = "PAYMENT_FAILED"
-					}
-				})
-
-				// polling payment status in 2s
-				selector.AddFuture(workflow.NewTimer(ctx, 2*time.Second), func(f workflow.Future) {
-					if orderState.Status == "ORDER_SUBMITTED" {
-						var response *activity.GetPaymentStatusResponse
-						ctx = workflow.WithActivityOptions(
-							ctx, DefaultActivityOption)
-						err = workflow.ExecuteActivity(ctx, a.GetPaymentStatus, orderState.PaymentId).Get(ctx, &response)
-						if err != nil {
-							log.Error("Error execute activity %s", "GetPaymentStatus")
-							return
-						}
-						if response.Success {
-							orderState.Status = "PAYMENT_SUCCESS"
-						} else {
-							orderState.Status = "PAYMENT_FAILED"
-						}
-					}
-				})
-			}
+			break
 		}
 
 		selector.Select(ctx)
 
-		if orderState.Status == "PAYMENT_SUCCESS" ||
-			orderState.Status == "PAYMENT_FAILED" ||
-			orderState.Status == "ORDER_TIMEOUT" ||
-			orderState.Status == "PAYMENT_TIMEOUT" {
-			break
-		}
 	}
 
 	return nil
