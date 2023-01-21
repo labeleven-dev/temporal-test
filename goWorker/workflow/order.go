@@ -16,6 +16,9 @@ type OrderState struct {
 // Order handle state transition directly under workflow
 func Order(ctx workflow.Context, orderId string, log *zap.SugaredLogger) (OrderState, error) {
 
+	activityCtx := workflow.WithActivityOptions(
+		ctx, DefaultActivityOption)
+
 	orderState := OrderState{
 		Status:    "CREATED",
 		PaymentId: "",
@@ -33,9 +36,7 @@ func Order(ctx workflow.Context, orderId string, log *zap.SugaredLogger) (OrderS
 	var a *activity.Payment
 
 	var response *activity.CreateOrderIntentResponse
-	ctx = workflow.WithActivityOptions(
-		ctx, DefaultActivityOption)
-	err = workflow.ExecuteActivity(ctx, a.CreateOrderIntent, orderId).Get(ctx, &response)
+	err = workflow.ExecuteActivity(activityCtx, a.CreateOrderIntent, orderId).Get(ctx, &response)
 	if err != nil {
 		log.Errorf("Error execute activity %s", "CreateOrderIntent")
 		return orderState, err
@@ -70,7 +71,7 @@ func Order(ctx workflow.Context, orderId string, log *zap.SugaredLogger) (OrderS
 			var response *activity.SubmitPaymentResponse
 			ctx = workflow.WithActivityOptions(
 				ctx, DefaultActivityOption)
-			err = workflow.ExecuteActivity(ctx, a.SubmitPayment, orderId, paymentInfo).Get(ctx, &response)
+			err = workflow.ExecuteActivity(activityCtx, a.SubmitPayment, orderId, paymentInfo).Get(ctx, &response)
 			if err != nil {
 				log.Errorf("Error execute activity %s", "SubmitPayment")
 				return
@@ -110,7 +111,7 @@ func Order(ctx workflow.Context, orderId string, log *zap.SugaredLogger) (OrderS
 				var response *activity.GetPaymentStatusResponse
 				ctx = workflow.WithActivityOptions(
 					ctx, DefaultActivityOption)
-				err = workflow.ExecuteActivity(ctx, a.GetPaymentStatus, orderState.PaymentId).Get(ctx, &response)
+				err = workflow.ExecuteActivity(activityCtx, a.GetPaymentStatus, orderState.PaymentId).Get(ctx, &response)
 				if err != nil {
 					log.Errorf("Error execute activity %s", "GetPaymentStatus")
 					return

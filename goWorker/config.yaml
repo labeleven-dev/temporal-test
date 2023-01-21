@@ -1,5 +1,5 @@
 # config
 name: "temporal-test"
 temporal:
-  workflow_name: "order"
+  workflow_name: "orderX"
   task_queue: "order-processor-1"

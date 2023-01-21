@@ -12,6 +12,9 @@ import (
 // OrderX handle state transition in state machine
 func OrderX(ctx workflow.Context, orderId string, log *zap.SugaredLogger) (state.StateOutput, error) {
 
+	activityCtx := workflow.WithActivityOptions(
+		ctx, DefaultActivityOption)
+
 	orderMachine, err := state.NewFSM(state.InitState)
 	if err != nil {
 		log.Infof("Creating order machine failed. %s", err)
@@ -32,7 +35,7 @@ func OrderX(ctx workflow.Context, orderId string, log *zap.SugaredLogger) (state
 	var response *activity.CreateOrderIntentResponse
 	ctx = workflow.WithActivityOptions(
 		ctx, DefaultActivityOption)
-	err = workflow.ExecuteActivity(ctx, a.CreateOrderIntent, orderId).Get(ctx, &response)
+	err = workflow.ExecuteActivity(activityCtx, a.CreateOrderIntent, orderId).Get(ctx, &response)
 	if err != nil {
 		log.Errorf("Error execute activity %s", "CreateOrderIntent")
 		return orderMachine.GetStateOutput(), err
@@ -72,7 +75,7 @@ func OrderX(ctx workflow.Context, orderId string, log *zap.SugaredLogger) (state
 			var response *activity.SubmitPaymentResponse
 			ctx = workflow.WithActivityOptions(
 				ctx, DefaultActivityOption)
-			err = workflow.ExecuteActivity(ctx, a.SubmitPayment, orderId, paymentInfo).Get(ctx, &response)
+			err = workflow.ExecuteActivity(activityCtx, a.SubmitPayment, orderId, paymentInfo).Get(ctx, &response)
 			if err != nil {
 				log.Errorf("Error execute activity %s", "SubmitPayment")
 				return
@@ -123,7 +126,7 @@ func OrderX(ctx workflow.Context, orderId string, log *zap.SugaredLogger) (state
 				var response *activity.GetPaymentStatusResponse
 				ctx = workflow.WithActivityOptions(
 					ctx, DefaultActivityOption)
-				err = workflow.ExecuteActivity(ctx, a.GetPaymentStatus, orderMachine.GetState().PaymentId).Get(ctx, &response)
+				err = workflow.ExecuteActivity(activityCtx, a.GetPaymentStatus, orderMachine.GetState().PaymentId).Get(ctx, &response)
 				if err != nil {
 					log.Errorf("Error execute activity %s", "GetPaymentStatus")
 					return
