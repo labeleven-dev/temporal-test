@@ -1,9 +1,9 @@
 package workflow
 
 import (
+	"fmt"
 	"github.com/mitchellh/mapstructure"
 	"go.temporal.io/sdk/workflow"
-	"go.uber.org/zap"
 	"goWorker/activity"
 	"time"
 )
@@ -14,7 +14,10 @@ type OrderState struct {
 }
 
 // Order handle state transition directly under workflow
-func Order(ctx workflow.Context, orderId string, log *zap.SugaredLogger) (OrderState, error) {
+func Order(ctx workflow.Context, orderId string) (OrderState, error) {
+	log := workflow.GetLogger(ctx)
+
+	log.Info("Running order workflow")
 
 	activityCtx := workflow.WithActivityOptions(
 		ctx, DefaultActivityOption)
@@ -29,7 +32,7 @@ func Order(ctx workflow.Context, orderId string, log *zap.SugaredLogger) (OrderS
 		return orderState.Status, nil
 	})
 	if err != nil {
-		log.Infof("SetQueryHandler %s failed. %s", QueryState.Order, err)
+		log.Error(fmt.Sprintf("SetQueryHandler %s failed. %s", QueryState.Order, err))
 		return orderState, err
 	}
 
@@ -38,7 +41,7 @@ func Order(ctx workflow.Context, orderId string, log *zap.SugaredLogger) (OrderS
 	var response *activity.CreateOrderIntentResponse
 	err = workflow.ExecuteActivity(activityCtx, a.CreateOrderIntent, orderId).Get(ctx, &response)
 	if err != nil {
-		log.Errorf("Error execute activity %s", "CreateOrderIntent")
+		log.Error(fmt.Sprintf("Error execute activity %s", "CreateOrderIntent"))
 		return orderState, err
 	}
 
@@ -64,7 +67,7 @@ func Order(ctx workflow.Context, orderId string, log *zap.SugaredLogger) (OrderS
 			var paymentInfo string
 			err := mapstructure.Decode(signal, &paymentInfo)
 			if err != nil {
-				log.Errorf("%s: Invalid signal type %v", SignalChannels.SubmitPayment, err)
+				log.Error(fmt.Sprintf("%s: Invalid signal type %v", SignalChannels.SubmitPayment, err))
 				return
 			}
 
@@ -73,7 +76,7 @@ func Order(ctx workflow.Context, orderId string, log *zap.SugaredLogger) (OrderS
 				ctx, DefaultActivityOption)
 			err = workflow.ExecuteActivity(activityCtx, a.SubmitPayment, orderId, paymentInfo).Get(ctx, &response)
 			if err != nil {
-				log.Errorf("Error execute activity %s", "SubmitPayment")
+				log.Error(fmt.Sprintf("Error execute activity %s", "SubmitPayment"))
 				return
 			}
 
@@ -89,7 +92,7 @@ func Order(ctx workflow.Context, orderId string, log *zap.SugaredLogger) (OrderS
 			var paymentSuccess bool
 			err := mapstructure.Decode(signal, &paymentSuccess)
 			if err != nil {
-				log.Errorf("%s: Invalid signal type %v", SignalChannels.PaymentResult, err)
+				log.Error(fmt.Sprintf("%s: Invalid signal type %v", SignalChannels.PaymentResult, err))
 				return
 			}
 
@@ -113,7 +116,7 @@ func Order(ctx workflow.Context, orderId string, log *zap.SugaredLogger) (OrderS
 					ctx, DefaultActivityOption)
 				err = workflow.ExecuteActivity(activityCtx, a.GetPaymentStatus, orderState.PaymentId).Get(ctx, &response)
 				if err != nil {
-					log.Errorf("Error execute activity %s", "GetPaymentStatus")
+					log.Error(fmt.Sprintf("Error execute activity %s", "GetPaymentStatus"))
 					return
 				}
 				if response.Success {

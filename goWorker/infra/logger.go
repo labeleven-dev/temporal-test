@@ -9,7 +9,7 @@ import (
 	"os"
 )
 
-func NewLogger(config *config.Config) *zap.SugaredLogger {
+func NewLogger(config *config.Config) *zap.Logger {
 	fileName := fmt.Sprintf("./logs/%s.log", config.Name)
 	syncWriter := zapcore.AddSync(
 		&lumberjack.Logger{
@@ -36,5 +36,5 @@ func NewLogger(config *config.Config) *zap.SugaredLogger {
 		zap.AddCaller(),
 		zap.AddCallerSkip(1))
 
-	return log.Sugar()
+	return log
 }

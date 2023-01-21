@@ -7,10 +7,10 @@ import (
 )
 
 type Payment struct {
-	log *zap.SugaredLogger
+	log *zap.Logger
 }
 
-func NewPayment(log *zap.SugaredLogger) *Payment {
+func NewPayment(log *zap.Logger) *Payment {
 	return &Payment{log: log}
 }
 
@@ -20,7 +20,7 @@ type CreateOrderIntentResponse struct {
 
 func (p *Payment) CreateOrderIntent(orderId string) (*CreateOrderIntentResponse, error) {
 
-	p.log.Infof(fmt.Sprintf("Creating order intent for %s", orderId))
+	p.log.Info(fmt.Sprintf("Creating order intent for %s", orderId))
 
 	return &CreateOrderIntentResponse{
 		Success: true,
@@ -33,7 +33,7 @@ type SubmitPaymentResponse struct {
 
 func (p *Payment) SubmitPayment(orderId string, paymentInfo string) (*SubmitPaymentResponse, error) {
 
-	p.log.Infof(fmt.Sprintf("Submitting payment (%s) for %s", paymentInfo, orderId))
+	p.log.Info(fmt.Sprintf("Submitting payment (%s) for %s", paymentInfo, orderId))
 
 	return &SubmitPaymentResponse{
 		PaymentId: uuid.New().String(),
@@ -46,7 +46,7 @@ type GetPaymentStatusResponse struct {
 
 func (p *Payment) GetPaymentStatus(paymentId string) (*GetPaymentStatusResponse, error) {
 
-	p.log.Infof(fmt.Sprintf("Checking payment status for %s", paymentId))
+	p.log.Info(fmt.Sprintf("Checking payment status for %s", paymentId))
 
 	return &GetPaymentStatusResponse{
 		Success: true,

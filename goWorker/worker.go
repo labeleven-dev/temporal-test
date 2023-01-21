@@ -10,14 +10,17 @@ import (
 	"go.uber.org/zap"
 	"goWorker/activity"
 	"goWorker/config"
+	"goWorker/utils"
 	"goWorker/workflow"
 )
 
-func NewWorker(config *config.Config, activity *activity.Payment, logger *zap.SugaredLogger) (client.Client, worker.Worker) {
+func NewWorker(config *config.Config, activity *activity.Payment, logger *zap.Logger) (client.Client, worker.Worker) {
 	// Create the client object just once per process
-	cli, err := client.Dial(client.Options{})
+	cli, err := client.Dial(client.Options{
+		Logger: utils.NewZapAdapter(logger),
+	})
 	if err != nil {
-		logger.Fatalln("unable to create Temporal client", err)
+		logger.Panic(fmt.Sprintf("unable to create Temporal client", err))
 	}
 
 	// init worker
