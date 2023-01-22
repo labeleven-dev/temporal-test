@@ -9,8 +9,8 @@ import {
   sleep,
   Trigger
 } from '@temporalio/workflow';
-import { QUERY_ORDER_STATE, SIGNAL_PAYMENT_RESULT, SIGNAL_SUBMIT_PAYMENT } from '../consts';
-import { interpretWithTemporal } from './xstate';
+import { QUERY_ORDER_STATE, SIGNAL_PAYMENT_RESULT, SIGNAL_SUBMIT_PAYMENT, SIGNAL_TRANSACTION_RESULT } from '../consts.js';
+import { interpretWithTemporal } from './xstate.js';
 // Only import the activity types
 import type * as activities from './activities.js';
 
@@ -19,13 +19,19 @@ export interface OrderState {
   paymentId: string | null;
 }
 
-const { createOrderIntent, submitPayment, getPaymentStatus } = proxyActivities<typeof activities>({
+const { createOrderIntent, submitPayment, getPaymentStatus, createTransaction, refundPayment } = proxyActivities<typeof activities>({
   startToCloseTimeout: '5 seconds'
+});
+
+const { submitAndConfirmTransaction } = proxyActivities<typeof activities>({
+  heartbeatTimeout: '5 seconds',
+  scheduleToCloseTimeout: '120 seconds' // cause blockhash expires
 });
 
 export const queryOrderState = defineQuery<string, []>(QUERY_ORDER_STATE);
 export const signalSubmitPayment = defineSignal<[string]>(SIGNAL_SUBMIT_PAYMENT);
 export const signalPaymentResult = defineSignal<[boolean]>(SIGNAL_PAYMENT_RESULT);
+export const signalTransactionResult = defineSignal<[boolean]>(SIGNAL_TRANSACTION_RESULT);
 
 export async function order(orderId: string): Promise<OrderState> {
   const orderState: OrderState = {
@@ -83,11 +89,13 @@ export async function order(orderId: string): Promise<OrderState> {
 }
 
 // XSTATE SPECIFIC
-import { createMachine, assign, interpret, StateFrom, send, raise } from 'xstate';
+import { createMachine, assign } from 'xstate';
+import { log } from 'xstate/lib/actions.js';
 
 interface OrderMachineContext extends OrderState {
   orderId: string;
   paymentInfo: string | null;
+  transactionId: string | null;
 }
 
 type OrderMachineEvents =
@@ -95,7 +103,8 @@ type OrderMachineEvents =
   | { type: 'PAYMENT_RESULT'; paymentSuccess: boolean }
   | { type: 'PAYMENT_PENDING' }
   | { type: 'PAYMENT_SUCCESS' }
-  | { type: 'PAYMENT_FAILED' };
+  | { type: 'PAYMENT_FAILED' }
+  | { type: 'TXN_RESULT'; txnSuccess: boolean };
 
 const setStatus = (status: string) =>
   assign<OrderMachineContext, any>({
@@ -105,16 +114,17 @@ const setStatus = (status: string) =>
 function createOrderMachine(orderId: string) {
   return createMachine<OrderMachineContext, OrderMachineEvents>({
     id: 'orderMachine',
-    initial: 'created',
+    initial: 'creating',
     predictableActionArguments: true,
     context: {
       orderId,
       status: 'CREATING',
       paymentInfo: null,
-      paymentId: null
+      paymentId: null,
+      transactionId: null
     },
     states: {
-      created: {
+      creating: {
         invoke: {
           src: 'createOrderIntent',
           onDone: 'pending',
@@ -152,7 +162,7 @@ function createOrderMachine(orderId: string) {
       orderSubmitted: {
         initial: 'wait',
         on: {
-          PAYMENT_RESULT: [{ target: 'paymentSuccess', cond: (context, event) => event.paymentSuccess }, { target: 'paymentFailed' }]
+          PAYMENT_RESULT: [{ target: 'paymentSuccess', cond: { type: 'paymentSuccess' } }, { target: 'paymentFailed' }]
         },
         states: {
           wait: {
@@ -172,7 +182,7 @@ function createOrderMachine(orderId: string) {
       },
       paymentSuccess: {
         entry: setStatus('PAYMENT_SUCCESS'),
-        type: 'final'
+        always: 'fulfillOrder'
       },
       paymentFailed: {
         entry: setStatus('PAYMENT_FAILED'),
@@ -189,6 +199,48 @@ function createOrderMachine(orderId: string) {
       createFailed: {
         entry: setStatus('CREATE_FAILED'),
         type: 'final'
+      },
+      fulfillOrder: {
+        initial: 'createTransaction',
+        entry: setStatus('FULFILLING'),
+        on: {
+          TXN_RESULT: [{ target: 'fulfilSuccess', cond: { type: 'transactionSuccess' } }, { target: 'fulfilFailed' }]
+        },
+        states: {
+          createTransaction: {
+            invoke: {
+              src: 'createTransaction',
+              onDone: {
+                target: 'sendAndConfirmTransaction',
+                actions: assign({
+                  status: (_context, _data) => 'TXN_CREATED',
+                  transactionId: (_context, event) => event.data
+                })
+              }
+            }
+          },
+          sendAndConfirmTransaction: {
+            invoke: {
+              src: 'sendAndConfirmTransaction',
+              onError: 'createTransaction'
+            }
+          }
+        }
+      },
+      fulfilSuccess: {
+        entry: setStatus('FULFIL_SUCCESS'),
+        type: 'final'
+      },
+      fulfilFailed: {
+        entry: setStatus('REFUNDING'),
+        invoke: {
+          src: 'refundPayment',
+          onDone: 'refunded'
+        }
+      },
+      refunded: {
+        entry: setStatus('REFUNDED'),
+        type: 'final'
       }
     }
   });
@@ -197,6 +249,10 @@ function createOrderMachine(orderId: string) {
 export async function orderX(orderId: string) {
   // map services / activities into the machine
   const machine = createOrderMachine(orderId).withConfig({
+    guards: {
+      paymentSuccess: (_context, event) => (event as any).paymentSuccess,
+      transactionSuccess: (_context, event) => (event as any).txnSuccess
+    },
     services: {
       createOrderIntent: async (context) => {
         return await createOrderIntent(context.orderId);
@@ -213,6 +269,18 @@ export async function orderX(orderId: string) {
             callback({ type: 'PAYMENT_RESULT', paymentSuccess: result });
           }
         };
+      },
+      createTransaction: async (context) => {
+        return await createTransaction(context.orderId as string, context.paymentId as string);
+      },
+      sendAndConfirmTransaction: (context) => {
+        return async (callback: any) => {
+          const result = await submitAndConfirmTransaction(context.transactionId as string);
+          callback({ type: 'TXN_RESULT', txnSuccess: true });
+        };
+      },
+      refundPayment: async (context) => {
+        return await refundPayment(context.orderId as string, context.paymentId as string);
       }
     }
   });
@@ -227,6 +295,9 @@ export async function orderX(orderId: string) {
   });
   setHandler(signalPaymentResult, async (paymentSuccess) => {
     service.eventSender({ type: 'PAYMENT_RESULT', paymentSuccess });
+  });
+  setHandler(signalTransactionResult, async (txnSuccess) => {
+    service.eventSender({ type: 'TXN_RESULT', txnSuccess });
   });
 
   // make sure workflow function doesn't resolve until the machine is done

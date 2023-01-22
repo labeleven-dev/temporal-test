@@ -7,10 +7,9 @@
     "build": "tsc --build",
     "build.watch": "tsc --build --watch",
     "lint": "eslint .",
-    "service": "node --loader ts-node/esm src/orderService/index.ts",
-    "service.watch": "nodemon src/orderService/index.ts",
-    "api": "node --loader ts-node/esm src/orderApi/index.ts",
-    "test": "node --loader ts-node/esm src/tests/tests.ts"
+    "service": "node dist/orderService/index.js",
+    "api": "node dist/orderApi/index.js",
+    "test": "node --inspect dist/tests/tests.js"
   },
   "nodemonConfig": {
     "execMap": {
